@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 from scipy.linalg import block_diag
 from timeit import default_timer as timer
+from os.path import join as join_path
 
 np.set_printoptions(precision = 1, suppress = True)
 
@@ -100,27 +101,52 @@ def data_generator(args):
   utility_c_ijt = genrate_utility(args)
 
   #create data directory and delete content of files if already exist
-  data_direcotry = args.output.split('/')[0]
+  data_direcotry = 'data'
   if not os.path.isdir(data_direcotry):
     os.mkdir(data_direcotry)
-  open(args.output, 'w').close()
-  open(args.output[:-4] + '_p2v.csv', 'w').close()
+  if not os.path.isdir('p2v'):
+    os.mkdir('p2v')
+  open(join_path(data_direcotry, args.output + '.csv'), 'w').close()
+  open(join_path(data_direcotry, args.output + '_train.csv'), 'w').close()
+  open(join_path(data_direcotry, args.output + '_test.csv'), 'w').close()
+  open(join_path(data_direcotry, args.output + '_validation.csv'), 'w').close()
+  open(join_path('p2v', args.output + '.csv'), 'w').close()
+  open(join_path('p2v', args.output + '_train.csv'), 'w').close()
+  open(join_path('p2v', args.output + '_test.csv'), 'w').close()
+  open(join_path('p2v', args.output + '_validation.csv'), 'w').close()
 
   #open files to write output to and add header line
-  baskets_file = open(args.output, 'a')
+  baskets_file = open(join_path(data_direcotry, args.output + '.csv'), 'a')
   baskets_file.write('basket_id,i,t,products\n')
-  p2v_basket_file = open(args.output[:-4] + '_p2v.csv', 'a')
-  p2v_basket_file.write('idx,i,j,price,price_paid,discount,t,basket_hash\n')
+  baskets_file_train = open(join_path(data_direcotry, args.output + '_train.csv'), 'a')
+  baskets_file_train.write('products\n')
+  baskets_file_test = open(join_path(data_direcotry, args.output + '_test.csv'), 'a')
+  baskets_file_test.write('products\n')
+  baskets_file_validation = open(join_path(data_direcotry, args.output + '_validation.csv'), 'a')
+  baskets_file_validation.write('products\n')
+  p2v_basket_file = open(join_path('p2v', args.output + '.csv'), 'a')
+  p2v_basket_file.write(',i,j,price,price_paid,discount,t,basket_hash\n')
+  p2v_basket_file_train = open(join_path('p2v', args.output + '_train.csv'), 'a')
+  p2v_basket_file_train.write(',i,j,price,price_paid,discount,t,basket_hash\n')
+  p2v_basket_file_test = open(join_path('p2v', args.output + '_test.csv'), 'a')
+  p2v_basket_file_test.write(',i,j,price,price_paid,discount,t,basket_hash\n')
+  p2v_basket_file_validation = open(join_path('p2v', args.output + '_validation.csv'), 'a')
+  p2v_basket_file_validation.write(',i,j,price,price_paid,discount,t,basket_hash\n')
 
 
   start = timer()
   #basket generation
-  baskets_it = []
+#  baskets_it = []
   cnt = -1
+  train_cnt = -1
+  test_cnt = -1
+  val_cnt = -1
   basket_id = -1
 
+  data_split = list(map(float, args.data_split.split(',')))
+
   for i in range(args.I):
-    baskets_i = []
+#    baskets_i = []
     for t in range(args.T):
       basket = []
       basket_id += 1
@@ -132,20 +158,47 @@ def data_generator(args):
           basket.append(j)
           p2v_basket_file.write(','.join(map(str, 
             [cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
+          if float(t)/args.T < 0.8:
+            train_cnt += 1
+            p2v_basket_file_train.write(','.join(map(str, 
+              [train_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
+          elif float(t)/args.T < 0.9:
+            val_cnt += 1
+            p2v_basket_file_validation.write(','.join(map(str, 
+              [val_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
+          else:
+            test_cnt += 1
+            p2v_basket_file_test.write(','.join(map(str, 
+              [test_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
+          
+
 #      baskets_file.write(','.join(map(str, [basket_id, i, t] + basket)) + '\n')
       baskets_file.write(','.join(map(str, basket)) + '\n')
-      baskets_i.append(basket)
-    baskets_it.append(baskets_i)
+      if float(t)/args.T < 0.8:
+        baskets_file_train.write(','.join(map(str, basket)) + '\n')
+      elif float(t)/args.T < 0.9:
+        baskets_file_validation.write(','.join(map(str, basket)) + '\n')
+      else:
+        baskets_file_test.write(','.join(map(str, basket)) + '\n')
+      
+#      baskets_i.append(basket)
+#    baskets_it.append(baskets_i)
 
   print(timer() - start)
   baskets_file.close()
+  baskets_file_train.close()
+  baskets_file_test.close()
+  baskets_file_validation.close()
   p2v_basket_file.close()
+  p2v_basket_file_train.close()
+  p2v_basket_file_test.close()
+  p2v_basket_file_validation.close()
 
 
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("-I", type = int, help = "Number of consumers", 
-                      default = 10000)
+                      default = 100)
   parser.add_argument("-T", type = int, help = "Number of weeks", 
                       default = 50)
   parser.add_argument("-C", type = int, help = "Number of categories",
@@ -176,7 +229,10 @@ def main():
                       default = 0.75)
   parser.add_argument("-output", type = str, 
                       help = "file to store output",
-                      default = 'data/baskets.csv')
+                      default = 'baskets')
+  parser.add_argument("-data-split", type = str, 
+                      help = "data split into train-test-validation fraction",
+                      default = '0.8,0.1,0.1')
   
   args = parser.parse_args()
   data_generator(args)
