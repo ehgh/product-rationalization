@@ -145,19 +145,25 @@ def data_generator(args):
 
   data_split = list(map(float, args.data_split.split(',')))
 
+  #for each costumer
   for i in range(args.I):
 #    baskets_i = []
+    #for each week
     for t in range(args.T):
       basket = []
       basket_id += 1
       for category in range(args.C):
+        #if category is selected to purchase
         if y[i, t, category]:
           cnt += 1
+          #pick the product with highest utility
           idx = np.argmax(utility_c_ijt[category, i, :, t])
           j = category * args.Jc + idx
           basket.append(j)
           p2v_basket_file.write(','.join(map(str, 
             [cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
+          #separate into train-test-validation sets
+          #save each item in one line (p2v style)
           if float(t)/args.T < 0.8:
             train_cnt += 1
             p2v_basket_file_train.write(','.join(map(str, 
@@ -173,6 +179,7 @@ def data_generator(args):
           
 
 #      baskets_file.write(','.join(map(str, [basket_id, i, t] + basket)) + '\n')
+      #save each generated basket in one line
       baskets_file.write(','.join(map(str, basket)) + '\n')
       if float(t)/args.T < 0.8:
         baskets_file_train.write(','.join(map(str, basket)) + '\n')
