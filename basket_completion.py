@@ -3,88 +3,143 @@ import argparse
 import numpy as np
 from timeit import default_timer as timer
 from os.path import join as join_path
+from numpy.random import choice
+from random import randrange
+from random import choice as randchoice
 
 np.set_printoptions(precision = 1, suppress = True)
 
 
-def data_generator(args):
+#calculate product penetration weights for sampling purposes
+def product_penetration_calculator(args, data_directory):
+  product_penetration_weights = [0] * args.C * args.Jc
+  with open(join_path(data_directory, args.output + '_train.csv'), 
+    'r') as baskets_test:
+    basket_cnt = len(baskets_test.readlines()) - 1 #reduce header count
+  with open(join_path(data_directory, args.output + '_train.csv'), 
+    'r') as baskets_test:
+    next(baskets_test)
+    for line in baskets_test:
+      if line.strip():
+        #use this line for def 1
+        #basket = list(map(int, line.strip().split(',')))
+        #use this line for def 2
+        basket = list(set(map(int, line.strip().split(','))))
+        for item in basket:
+          product_penetration_weights[item] += 1 
+  #def 1: penetration = number of item sold/number of all items sold
+  #product_penetration_weights_probs = [i/sum(
+  #  product_penetration_weights) for i in product_penetration_weights]
+  
+  #def 2: penetration = normalize(number of baskets containing the item/number of baskets)
+  product_penetration_weights_probs = [i/basket_cnt 
+    for i in product_penetration_weights]
+  #normalize the probability vector
+  product_penetration_weights_probs = [i / sum(product_penetration_weights_probs) for
+    i in product_penetration_weights_probs]
+  return product_penetration_weights_probs
+
+
+#predict the missing item from a list of draws using remaining basket items
+def predict_item(basket, draw):
+  return randchoice(draw)
+
+
+#create sampled data to predict missing item
+def draw_samples(args, data_directory, output_directory):
   
   #create data directory and delete content of files if already exist
-  output_directory = 'basket_completion_data'
   if not os.path.isdir(output_directory):
     os.mkdir(output_directory)
-  open(join_path(output_directory, args.output + '_test.csv'), 'w').close()
+  open(join_path(output_directory, args.output + '_baskets2predict.csv'), 'w').close()
+  open(join_path(output_directory, args.output + '_draws.csv'), 'w').close()
+  open(join_path(output_directory, args.output + '_items2predict.csv'), 'w').close()
+  #open files to save data  
+  draws = open(join_path(output_directory, args.output + '_draws.csv'), 'a')
+  items2predict = open(join_path(output_directory, args.output + '_items2predict.csv'), 'a')
+  baskets2predict = open(join_path(output_directory, args.output + '_baskets2predict.csv'), 'a')
+
+  number_of_items_to_pick = args.n_sample
+
+  #calculate product penetration weights for sampling purposes
+  product_penetration_weights_probs = product_penetration_calculator(args, 
+                                      data_directory)
+
+  correct_predictions_cnt = 0
+  instance_cnt = 0
+  #generate samples
+  with open(join_path(data_directory, args.output + '_test.csv'), 
+    'r') as baskets_test:
+    next(baskets_test)
+    for line in baskets_test:
+      if line.strip():
+        basket = list(map(int, line.strip().split(',')))
+        #remove baskets of small sizes
+        if len(basket) > args.min_basket_len:
+          #randomly select a product from basket to remove and predict
+          idx2remove = randrange(len(basket))
+          item2predict = basket.pop(idx2remove)
+          #sample a pool of products to predict the removed item from them
+          #sample from all products
+          draw = list(choice(range(len(product_penetration_weights_probs)), 
+            number_of_items_to_pick,
+            p = product_penetration_weights_probs))
+          draw.append(item2predict)
+          #sample from the category of removed item
+          #TO DO
+          #........................................
+
+          #predict the removed item from the sampled pool of products
+          predict = predict_item(basket, draw)
+          instance_cnt += 1
+          if predict == item2predict:
+            correct_predictions_cnt += 1
+
+          #save the data
+          draws.write(','.join(map(str, draw)) + '\n')
+          items2predict.write(str(item2predict) + '\n')
+          baskets2predict.write(','.join(map(str, basket)) + '\n')
+
+  print(instance_cnt)
+  print(1.0/(number_of_items_to_pick + 1))
+  print(correct_predictions_cnt/instance_cnt)
+  draws.close()
+  items2predict.close()
+  baskets2predict.close()
+
+  return draw
+
+def data_generator(args):
   
-  #open files to write output to and add header line
+  #directories
+  output_directory = 'basket_completion_data'
   data_directory = 'data'
-  basket_completion_file = open(join_path(output_directory, args.output + '_test.csv'), 'a')
-  baskets_file_train = open(join_path(data_directory, args.output + '_train.csv'), 'r')
-  baskets_file_test = open(join_path(data_directory, args.output + '_test.csv'), 'r')
-  
 
   start = timer()
-  #basket generation
-  weights = 
-  cnt = -1
-  train_cnt = -1
-  test_cnt = -1
-  val_cnt = -1
-  basket_id = -1
 
-  data_split = list(map(float, args.data_split.split(',')))
+  #create sampled data to predict missing item
+  draw = draw_samples(args, data_directory, output_directory)
 
-  for i in range(args.I):
-#    baskets_i = []
-    for t in range(args.T):
-      basket = []
-      basket_id += 1
-      for category in range(args.C):
-        if y[i, t, category]:
-          cnt += 1
-          idx = np.argmax(utility_c_ijt[category, i, :, t])
-          j = category * args.Jc + idx
-          basket.append(j)
-          p2v_basket_file.write(','.join(map(str, 
-            [cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
-          if float(t)/args.T < 0.8:
-            train_cnt += 1
-            p2v_basket_file_train.write(','.join(map(str, 
-              [train_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
-          elif float(t)/args.T < 0.9:
-            val_cnt += 1
-            p2v_basket_file_validation.write(','.join(map(str, 
-              [val_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
-          else:
-            test_cnt += 1
-            p2v_basket_file_test.write(','.join(map(str, 
-              [test_cnt, i, j, 1, 1, 0, t, basket_id])) + '\n')
-          
 
-#      baskets_file.write(','.join(map(str, [basket_id, i, t] + basket)) + '\n')
-      baskets_file.write(','.join(map(str, basket)) + '\n')
-      if float(t)/args.T < 0.8:
-        baskets_file_train.write(','.join(map(str, basket)) + '\n')
-      elif float(t)/args.T < 0.9:
-        baskets_file_validation.write(','.join(map(str, basket)) + '\n')
-      else:
-        baskets_file_test.write(','.join(map(str, basket)) + '\n')
-      
-#      baskets_i.append(basket)
-#    baskets_it.append(baskets_i)
+
+
+
+
+
 
   print(timer() - start)
-  baskets_file.close()
-  baskets_file_train.close()
-  baskets_file_test.close()
-  baskets_file_validation.close()
-  p2v_basket_file.close()
-  p2v_basket_file_train.close()
-  p2v_basket_file_test.close()
-  p2v_basket_file_validation.close()
 
 
 def main():
   parser = argparse.ArgumentParser()
+  parser.add_argument("-n-sample", type = int, 
+                      help = "number of items to sample", 
+                      default = 14)
+  parser.add_argument("-min-basket-len", type = int, 
+                      help = "minimum length of baskets", 
+                      default = 5)
+  
+
   parser.add_argument("-I", type = int, help = "Number of consumers", 
                       default = 100)
   parser.add_argument("-T", type = int, help = "Number of weeks", 
