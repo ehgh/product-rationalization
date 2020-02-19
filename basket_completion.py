@@ -86,7 +86,7 @@ def draw_samples(args, data_directory, output_directory):
                                       data_directory)
 
   #load p2v embeddings
-  p2v_embeddings = pd.read_csv(args.p2v_embedding, sep = ',')[['x', 'y']]
+  #p2v_embeddings = pd.read_csv(args.p2v_embedding, sep = ',')[['x', 'y']]
   p2v_embeddings_v = np.load(args.p2v_v)
   p2v_embeddings_w = np.load(args.p2v_w)
   
@@ -116,7 +116,7 @@ def draw_samples(args, data_directory, output_directory):
           #........................................
 
           #predict the removed item from the sampled pool of products
-          predict = predict_item(args, basket, draw, 'p2v', select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
+          predict = predict_item(args, basket, draw, 'p2v', select = 'max', embedding = (p2v_embeddings_v, p2v_embeddings_w))
           instance_cnt += 1
           if instance_cnt % 1000 == 0:
             print(instance_cnt) 
