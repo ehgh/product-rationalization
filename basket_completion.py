@@ -43,7 +43,7 @@ def product_penetration_calculator(args, data_directory):
 
 
 #predict the missing item from a list of draws using remaining basket items
-def predict_item(args, basket, draw, method = 'random', select = 'average', **kwargs):
+def predict_item(args, basket, draw, method = 'random', select = 'max', **kwargs):
   
   if method == 'random':
     return randchoice(draw)
@@ -86,9 +86,11 @@ def draw_samples(args, data_directory, output_directory):
                                       data_directory)
 
   #load p2v embeddings
-  #p2v_embeddings = pd.read_csv(args.p2v_embedding, sep = ',')[['x', 'y']]
+  #p2v_embeddings_v = pd.read_csv(args.p2v_embedding_v, sep = ',')[['x', 'y']].to_numpy()
+  #p2v_embeddings_w = pd.read_csv(args.p2v_embedding_w, sep = ',')[['x', 'y']].to_numpy()
   p2v_embeddings_v = np.load(args.p2v_v)
   p2v_embeddings_w = np.load(args.p2v_w)
+  print(p2v_embeddings_v.shape)
   
   correct_predictions_cnt = 0
   instance_cnt = 0
@@ -116,7 +118,7 @@ def draw_samples(args, data_directory, output_directory):
           #........................................
 
           #predict the removed item from the sampled pool of products
-          predict = predict_item(args, basket, draw, 'p2v', select = 'max', embedding = (p2v_embeddings_v, p2v_embeddings_w))
+          predict = predict_item(args, basket, draw, 'p2v', select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
           instance_cnt += 1
           if instance_cnt % 1000 == 0:
             print(instance_cnt) 
@@ -169,9 +171,12 @@ def main():
   parser.add_argument("-min-basket-len", type = int, 
                       help = "minimum length of baskets", 
                       default = 5)
-  parser.add_argument("-p2v-embedding", type = str, 
+  parser.add_argument("-p2v-embedding-v", type = str, 
                       help = "path to p2v embedding file", 
-                      default = 'data/embeddings.csv')
+                      default = 'data/embeddings_wi.csv')
+  parser.add_argument("-p2v-embedding-w", type = str, 
+                      help = "path to p2v embedding file", 
+                      default = 'data/embeddings_wo.csv')
   parser.add_argument("-p2v-v", type = str, 
                       help = "path to p2v v embeddings file", 
                       default = 'data/wi.npy')
