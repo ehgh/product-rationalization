@@ -74,13 +74,23 @@ def predict_item(args, basket, draw, method = 'random', select = 'max', **kwargs
     return randchoice(draw)
   elif method == 'p2v':
     (p2v_embeddings_v, p2v_embeddings_w) = kwargs['embedding']
+  elif method == 'node2v':
+    (node2v_embedding, denom) = kwargs['embedding']
 
   #first item of basket is the one to predict
-  basket_embeds_v = p2v_embeddings_v[basket[1:], :]
-  if select == 'average':
-    predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).mean(0).argmax()]
-  else:
-    predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).max(0).argmax()]
+  if method == 'p2v' or method == 'random':
+    basket_embeds_v = p2v_embeddings_v[basket[1:], :]
+    if select == 'average':
+      predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).mean(0).argmax()]
+    else:
+      predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).max(0).argmax()]
+  elif method =='node2v':
+    basket_embeds_v = node2v_embedding[basket[1:], :]
+    denom_v = denom[basket[1:]][:,None]
+    if select == 'average':
+      predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v).mean(0).argmax()]
+    else:
+      predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v).max(0).argmax()]
   
   return predicted_item
 
@@ -137,7 +147,13 @@ def draw_samples(args, data_directory, output_directory):
           #........................................
 
           #predict the removed item from the sampled pool of products
-          predict = predict_item(args, basket, draw, 'p2v', select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
+          method = 'node2v' #'node2v' or 'p2v' or 'random'
+          if method == 'p2v' or method == 'random':
+            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
+          elif method =='node2v':
+            embedding = p2v_embeddings_v
+            denom = np.exp(embedding @ embedding.T).sum(0)
+            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (embedding, denom))
 
           if instance_cnt % 1000 == 0:
             print(instance_cnt) 
