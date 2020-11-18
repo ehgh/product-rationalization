@@ -48,6 +48,8 @@ def sigma_per_cat(args):
   for category in range(args.C):
     b = np.random.beta(0.2, 1, size = (sz, sz))
     np.fill_diagonal(b, 1)
+    #TODO: instead of dot in line below just fill in the top triangle
+    #TODO: make sure value are not negative
     omega_c = np.dot(b, b.T)
     tau_I_c = tau * I_c
     sigma_c = np.matmul(tau_I_c, omega_c)
@@ -68,11 +70,13 @@ def genrate_utility(args):
     alpha_c_ij[category, :, :] = np.random.multivariate_normal(
       mean = [0] * args.Jc, cov = Sigma_c[category, :, :], size = (args.I))
   #repeat it over different weeks for faster array addition later
+  #TODO: generate per week utility
   alpha_c_ijt = np.repeat(alpha_c_ij[:, :, :, np.newaxis], args.T, axis = 3)
 
   e_c_ijt = np.random.normal(0, args.Sigma0, size = (args.C, args.I, args.Jc, 
                              args.T))
   #utility function
+  #TODO: add price elasticity
   utility_c_ijt = alpha_c_ijt + e_c_ijt
 
   return utility_c_ijt

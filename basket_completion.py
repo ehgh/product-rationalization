@@ -86,9 +86,12 @@ def predict_item(args, basket, draw, method = 'random', select = 'max', **kwargs
       predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).max(0).argmax()]
   elif method =='node2v':
     basket_embeds_v = node2v_embedding[basket[1:], :]
-    denom_v = denom[basket[1:]][:,None]
+    denom_v = denom[draw]#denom[basket[1:]]
     if select == 'average':
-      predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v).mean(0).argmax()]
+      predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)*len(basket)).argmax()]
+      #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)).argmax()]
+      #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)).argmax()]
+      #predicted_item = draw[((np.abs(basket_embeds_v[:,None,:] - node2v_embedding[draw])).sum(-1).sum(0)).argmax()]
     else:
       predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v).max(0).argmax()]
   
@@ -112,15 +115,23 @@ def draw_samples(args, data_directory, output_directory):
   #calculate product penetration weights for sampling purposes
   product_penetration_weights_probs = product_penetration_calculator(args, 
                                       data_directory)
+  product_penetration_weights_probs = np.array(product_penetration_weights_probs)
   all_items = np.arange(len(product_penetration_weights_probs))
   
   #load p2v embeddings
-  #p2v_embeddings_v = pd.read_csv(args.p2v_embedding_v, sep = ',')[['x', 'y']].to_numpy()
-  #p2v_embeddings_w = pd.read_csv(args.p2v_embedding_w, sep = ',')[['x', 'y']].to_numpy()
-  p2v_embeddings_v = np.load(args.p2v_v)
-  p2v_embeddings_w = np.load(args.p2v_w)
-  print(p2v_embeddings_v.shape)
+  if args.embedding.any():
+    p2v_embeddings_v = args.embedding
+    p2v_embeddings_w = args.embedding
+  else:
+    #p2v_embeddings_v = pd.read_csv(args.p2v_embedding_v, sep = ',')[['x', 'y']].to_numpy()
+    #p2v_embeddings_w = pd.read_csv(args.p2v_embedding_w, sep = ',')[['x', 'y']].to_numpy()
+    p2v_embeddings_v = np.load(args.p2v_v)
+    p2v_embeddings_w = np.load(args.p2v_w)
+  print('basket completion {}'.format(p2v_embeddings_v.shape))
   
+  #for node2vec method
+  denom = np.exp(p2v_embeddings_v @ p2v_embeddings_v.T).sum(0)
+
   item2predict, predictions = [], []
   #generate samples
   start = timer()
@@ -128,19 +139,23 @@ def draw_samples(args, data_directory, output_directory):
     'r') as baskets_test_f:
     next(baskets_test_f)
     baskets_test = [list(map(int, x.strip().split(','))) for x in baskets_test_f.readlines() if x.strip()]
-  
+
   for instance_cnt, basket in enumerate(baskets_test):
       
+      #remove duplicates from the basket if necessary
+      #basket = list(set(basket))
+          
       #remove baskets of small sizes
       if len(basket) > args.min_basket_len:
-
           #shuffle the basket to predict the first item of it
           random.shuffle(basket)
           #sample a pool of products to predict the removed item from them
-          #sample from all products
-          draw = np.random.choice(all_items, 
+          #sample from all products minus the ones already in the basket
+          remaining_items = np.setdiff1d(all_items, basket, assume_unique=True)
+          remaining_weights = product_penetration_weights_probs[remaining_items]
+          draw = np.random.choice(remaining_items, 
             number_of_items_to_pick, replace=False,
-            p = product_penetration_weights_probs).tolist()
+            p = remaining_weights/remaining_weights.sum()).tolist()
           draw.append(basket[0])
           #sample from the category of removed item
           #TO DO
@@ -151,14 +166,12 @@ def draw_samples(args, data_directory, output_directory):
           if method == 'p2v' or method == 'random':
             predict = predict_item(args, basket, draw, method, select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
           elif method =='node2v':
-            embedding = p2v_embeddings_v
-            denom = np.exp(embedding @ embedding.T).sum(0)
-            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (embedding, denom))
+            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (p2v_embeddings_v, denom))
 
-          if instance_cnt % 1000 == 0:
-            print(instance_cnt) 
-            print(timer() - start)
-            start = timer()
+          #if instance_cnt % 10000 == 0:
+          #  print(instance_cnt) 
+          #  print(timer() - start)
+          #  start = timer()
 
           item2predict.append(basket[0])
           predictions.append(predict)
@@ -167,12 +180,13 @@ def draw_samples(args, data_directory, output_directory):
           #draws.write(','.join(map(str, draw)) + '\n')
           #baskets2predict.write(','.join(map(str, basket)) + '\n')
 
-  print(1.0/(number_of_items_to_pick + 1))
-  print(sum(x==y for x, y in zip(item2predict, predictions))/len(predictions))
+  print('random probability', 1.0/(number_of_items_to_pick + 1))
+  prediciton_accuracy = sum(x==y for x, y in zip(item2predict, predictions))/len(predictions)
+  print('prediciton accuracy', prediciton_accuracy)
   draws.close()
   baskets2predict.close()
 
-  return draw
+  return prediciton_accuracy
 
 def data_generator(args):
   
@@ -183,8 +197,9 @@ def data_generator(args):
   start = timer()
 
   #create sampled data to predict missing item
-  draw = draw_samples(args, data_directory, output_directory)
+  prediciton_accuracy = draw_samples(args, data_directory, output_directory)
 
+  return prediciton_accuracy
 
 
 
@@ -195,7 +210,7 @@ def data_generator(args):
   print(timer() - start)
 
 
-def main():
+def basket_completion_accuracy(**kwargs):
   parser = argparse.ArgumentParser()
   parser.add_argument("-n-sample", type = int, 
                       help = "number of items to sample", 
@@ -255,9 +270,13 @@ def main():
                       default = '0.8,0.1,0.1')
   
   args = parser.parse_args()
-  data_generator(args)
+  args_dict = vars(args)
+  for k, v in kwargs.items():
+    args_dict[k] = v
+
+  return data_generator(args)
 
 
 
 if __name__ == "__main__":
-  main()
+  basket_completion_accuracy()
