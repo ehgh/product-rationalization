@@ -5,45 +5,61 @@ import numpy as np
 import pandas as pd
 import random
 import matplotlib.pyplot as plt
+import pickle
+import networkx as nx
+
 from timeit import default_timer as timer
 from os.path import join as join_path
 from random import randrange
 from random import choice as randchoice
+from tqdm import tqdm
+from sklearn.cluster import SpectralClustering, DBSCAN
 
-
-np.set_printoptions(precision = 1, suppress = True)
+np.set_printoptions(precision = 5, 
+                    suppress = True, 
+                    linewidth=500, 
+                    #threshold=sys.maxsize,
+                    edgeitems=8
+                    )
 
 
 #calculate product penetration weights for sampling purposes
 def product_penetration_calculator(args, data_directory):
-  product_penetration_weights = [0] * args.C * args.Jc
+  product_penetration_weights = [0] * args.N
   basket_cnt = 0
   with open(join_path(data_directory, args.output + '_train.csv'), 
     'r') as baskets_test:
     next(baskets_test)
     for line in baskets_test:
       if line.strip():
-        #use this line for def 1
-        #basket = list(map(int, line.strip().split(',')))
+        #use this line for def 1 
+        #(if products do not repeat per basket the two def become the same)
+        basket = list(map(int, line.strip().split(',')))
         #use this line for def 2
-        basket = list(set(map(int, line.strip().split(','))))
+        #basket = list(set(map(int, line.strip().split(','))))
         basket_cnt += 1
         for item in basket:
-          product_penetration_weights[item] += 1 
+            try:
+              product_penetration_weights[item] += 1 
+            except:
+              print('exception happened')
+              print(item)
   #def 1: penetration = number of item sold/number of all items sold
   #product_penetration_weights_probs = [i/sum(
   #  product_penetration_weights) for i in product_penetration_weights]
   
   #def 2: penetration = normalize(number of baskets containing the item/number of baskets)
-  product_penetration_weights_probs = [i/basket_cnt 
-    for i in product_penetration_weights]
+  #this line is unnecessary since next line normalizes it anyways
+  #product_penetration_weights_probs = [i/basket_cnt 
+  #  for i in product_penetration_weights]
   #normalize the probability vector
-  product_penetration_weights_probs = [i / sum(product_penetration_weights_probs) for
-    i in product_penetration_weights_probs]
+  product_penetration_weights_probs = [i / sum(product_penetration_weights) for
+    i in product_penetration_weights]
+  
   return product_penetration_weights_probs
 
 def product_penetration_calculator_v2(args, data_directory):
-  product_penetration_weights = np.zeros(args.C * args.Jc)
+  product_penetration_weights = np.zeros(args.N)
   basket_cnt = 0
   with open(join_path(data_directory, args.output + '_train.csv'), 
     'r') as baskets_test:
@@ -51,9 +67,9 @@ def product_penetration_calculator_v2(args, data_directory):
     for line in baskets_test:
       if line.strip():
         #use this line for def 1
-        #basket = list(map(int, line.strip().split(',')))
+        basket = list(map(int, line.strip().split(',')))
         #use this line for def 2
-        basket = list(set(map(int, line.strip().split(','))))
+        #basket = list(set(map(int, line.strip().split(','))))
         basket_cnt += 1
         product_penetration_weights[basket] += 1 
   #def 1: penetration = number of item sold/number of all items sold
@@ -61,41 +77,85 @@ def product_penetration_calculator_v2(args, data_directory):
   #  product_penetration_weights) for i in product_penetration_weights]
   
   #def 2: penetration = normalize(number of baskets containing the item/number of baskets)
-  product_penetration_weights_probs = product_penetration_weights/basket_cnt
+  #this line is unnecessary since next line normalizes it anyways
+  #product_penetration_weights_probs = product_penetration_weights/basket_cnt
   #normalize the probability vector
-  product_penetration_weights_probs = product_penetration_weights_probs/product_penetration_weights_probs.sum()
+  product_penetration_weights_probs = product_penetration_weights/product_penetration_weights.sum()
   return product_penetration_weights_probs
 
 
 #predict the missing item from a list of draws using remaining basket items
-def predict_item(args, basket, draw, method = 'random', select = 'max', **kwargs):
+def predict_item(args, basket, draw, **kwargs):
   
+  random.shuffle(draw)
+  #draw = draw[1:]+[draw[0]]
+  
+  method = args.method
   if method == 'random':
     return randchoice(draw)
   elif method == 'p2v':
     (p2v_embeddings_v, p2v_embeddings_w) = kwargs['embedding']
   elif method == 'node2v':
-    (node2v_embedding, denom) = kwargs['embedding']
+    (node2v_embedding_v, node2v_embedding_w) = kwargs['embedding']
+    model = kwargs['model']
+    G = kwargs['G']
 
   #first item of basket is the one to predict
   if method == 'p2v' or method == 'random':
     basket_embeds_v = p2v_embeddings_v[basket[1:], :]
-    if select == 'average':
-      predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).mean(0).argmax()]
+    basket_embeds_w = p2v_embeddings_w[basket[1:], :]
+    if args.selection == 'average':
+      predicted_item1 = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).mean(0).argmax()]
+      predicted_item2 = draw[np.dot(p2v_embeddings_v[draw], basket_embeds_w.T).mean(1).argmax()]
     else:
-      predicted_item = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).max(0).argmax()]
+      predicted_item1 = draw[np.dot(basket_embeds_v, p2v_embeddings_w[draw].T).max(0).argmax()]
+      predicted_item2 = draw[np.dot(p2v_embeddings_v[draw], basket_embeds_w.T).max(1).argmax()]
   elif method =='node2v':
-    basket_embeds_v = node2v_embedding[basket[1:], :]
-    denom_v = denom[draw]#denom[basket[1:]]
-    if select == 'average':
-      predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)*len(basket)).argmax()]
+    basket_embeds_v = node2v_embedding_v[basket[1:], :]
+    basket_embeds_w = node2v_embedding_w[basket[1:], :]
+    #denom_v = denom[draw]#denom[basket[1:]]
+
+    #use word2vec model score to choose
+    left_items = list(map(str,basket[1:]))
+    pot_baskets = [[str(i)]+left_items for i in draw]
+    #pot_baskets = [list(map(str,basket[i:])) for i in range(len(basket))]
+    #print('\n',pot_baskets)
+    #random.shuffle(pot_baskets)
+    if args.selection == 'average':
+      #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)*len(basket)).argmax()]
       #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)).argmax()]
       #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)).argmax()]
       #predicted_item = draw[((np.abs(basket_embeds_v[:,None,:] - node2v_embedding[draw])).sum(-1).sum(0)).argmax()]
+      #predicted_item = draw[np.array(model.score(pot_baskets, total_sentences=len(pot_baskets))).argmax()]
+      predicted_item1 = draw[np.dot(basket_embeds_v, node2v_embedding_w[draw].T).mean(0).argmax()]
+      predicted_item2 = draw[np.dot(node2v_embedding_v[draw], basket_embeds_w.T).mean(1).argmax()]
+      
     else:
-      predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v).max(0).argmax()]
-  
-  return predicted_item
+      #predicted_item1 = draw[np.array([[G[i][j]['weight'] if i in G and j in G[i] else 0 for j in basket[1:]] for i in draw]).sum(1).argmax()]
+      #predicted_item2 = draw[np.array([[G[i][j]['weight'] if i in G and j in G[i] else 0 for j in basket[1:]] for i in draw]).max(1).argmax()]
+      '''
+      scores = np.array(model.score(pot_baskets, total_sentences=len(pot_baskets)))
+      if (scores==scores.max()).sum() == 1:
+        predicted_item = draw[scores.argmax()]
+      else:
+        predicted_item = None
+      '''
+      #predicted_item = draw[np.array(model.score(pot_baskets, total_sentences=len(pot_baskets))).argmax()]
+      #predicted_item = model.score(pot_baskets, total_sentences=len(pot_baskets))
+      #predicted_item = int(pot_baskets[np.array(model.score(pot_baskets, total_sentences=len(pot_baskets))).argmax()][0])
+      #predicted_item = draw[(np.exp(np.dot(basket_embeds_v, node2v_embedding[draw].T))/denom_v[:,0]).max(0).argmax()]
+      predicted_item1 = draw[np.dot(basket_embeds_v, node2v_embedding_w[draw].T).max(0).argmax()]
+      predicted_item2 = draw[np.dot(node2v_embedding_v[draw], basket_embeds_w.T).max(1).argmax()]
+      ### this is less accurate
+      #wrds = np.stack(model.predict_output_word(left_items, topn=args.N))[:,0]
+      #xsorted = np.argsort(wrds)
+      #predicted_item = draw[xsorted[np.searchsorted(wrds[xsorted], draw)].argmin()]
+      
+    #print(draw)
+    #print(scores)
+    #print('\n', predicted_item, basket[0])
+    #input()
+  return predicted_item1, predicted_item2
 
 
 #create sampled data to predict missing item
@@ -116,37 +176,121 @@ def draw_samples(args, data_directory, output_directory):
   product_penetration_weights_probs = product_penetration_calculator(args, 
                                       data_directory)
   product_penetration_weights_probs = np.array(product_penetration_weights_probs)
-  all_items = np.arange(len(product_penetration_weights_probs))
+  all_items = np.arange(args.N)
   
-  #load p2v embeddings
-  if args.embedding.any():
-    p2v_embeddings_v = args.embedding
-    p2v_embeddings_w = args.embedding
-  else:
-    #p2v_embeddings_v = pd.read_csv(args.p2v_embedding_v, sep = ',')[['x', 'y']].to_numpy()
-    #p2v_embeddings_w = pd.read_csv(args.p2v_embedding_w, sep = ',')[['x', 'y']].to_numpy()
-    p2v_embeddings_v = np.load(args.p2v_v)
-    p2v_embeddings_w = np.load(args.p2v_w)
+  #load embeddings
+  if args.method == 'node2v':
+    if 'embedding' in vars(args) and args.embedding.any():
+      p2v_embeddings_v = args.embedding
+      #p2v_embeddings_w = args.embedding
+      model = pickle.load(open('out_files/model_p'+str(args.p)+'_q'+str(args.q)+'.pkl', 'rb'))
+      #get wi vectors
+      p2v_embeddings_w = model.trainables.syn1neg
+      #get the item's indices
+      index2entity = np.array([int(i) for i in model.wv.index2entity if i])
+      #sort wi from 0-N
+      p2v_embeddings_w = p2v_embeddings_w[index2entity.argsort()]
+      #find missing products in vocab
+      missing_prods = np.flatnonzero(~np.in1d(np.arange(args.N),index2entity))
+      missing_prods -= np.arange(missing_prods.size)
+      #insert all zeros feature vector for missing products
+      p2v_embeddings_w = np.insert(p2v_embeddings_w, missing_prods, np.zeros(p2v_embeddings_w.shape[1]), 0)
+      
+  elif args.method == 'p2v' or args.method == 'random':
+    #p2v_embeddings_v = pd.read_csv(os.path.join(data_directory, args.p2v_embedding_v), sep = ',')[['x', 'y']].to_numpy()
+    #p2v_embeddings_w = pd.read_csv(os.path.join(data_directory, args.p2v_embedding_w), sep = ',')[['x', 'y']].to_numpy()
+    p2v_embeddings_v = np.load(os.path.join(data_directory, args.p2v_v))
+    p2v_embeddings_w = np.load(os.path.join(data_directory, args.p2v_w))
   print('basket completion {}'.format(p2v_embeddings_v.shape))
   
   #for node2vec method
-  denom = np.exp(p2v_embeddings_v @ p2v_embeddings_v.T).sum(0)
+  #denom = np.exp(p2v_embeddings_v @ p2v_embeddings_w.T).sum(0)[:,None]
+  #denom = (p2v_embeddings_v @ p2v_embeddings_w.T).sum(0)[:,None]
 
-  item2predict, predictions = [], []
+  #plot embeddings and score heatmaps
+  if args.plot_embedding == 'True':
+    plot_embedding = True
+    if plot_embedding: 
+      fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(10, 5))
+      im_00 = ax[0,0].imshow(p2v_embeddings_v.T, cmap='hot', interpolation='nearest', aspect=10)
+      im_01 = ax[0,1].imshow(p2v_embeddings_w.T, cmap='hot', interpolation='nearest', aspect=10)
+      fig.colorbar(im_00, ax=ax[0,0])  
+      fig.colorbar(im_01, ax=ax[0,1])
+      p2v_embeddings_v_norm = np.linalg.norm(p2v_embeddings_v, axis=1)[:,None]  
+      p2v_embeddings_v_norm[p2v_embeddings_v_norm==0] = 1
+      p2v_embeddings_w_norm = np.linalg.norm(p2v_embeddings_w, axis=1)[:,None]  
+      p2v_embeddings_w_norm[p2v_embeddings_w_norm==0] = 1
+      p2v_embeddings_v_normalized = p2v_embeddings_v / p2v_embeddings_v_norm
+      p2v_embeddings_w_normalized = p2v_embeddings_w / p2v_embeddings_w_norm
+      im_10 = ax[1,0].imshow(p2v_embeddings_v_normalized.T, cmap='hot', interpolation='nearest', aspect=10)
+      im_11 = ax[1,1].imshow(p2v_embeddings_w_normalized.T, cmap='hot', interpolation='nearest', aspect=10)
+      fig.colorbar(im_10, ax=ax[1,0])  
+      fig.colorbar(im_11, ax=ax[1,1])  
+      #plt.show()
+      fig.savefig("embedding_"+args.method+".pdf", bbox_inches='tight')
+
+    if 'embedding' in vars(args) and args.embedding.any():
+      v_w_cross = np.dot(p2v_embeddings_v, p2v_embeddings_w.T)#-np.log(np.exp(p2v_embeddings_v @ p2v_embeddings_w.T).sum(0)[None,:])
+      #v_w_cross = np.exp(np.dot(p2v_embeddings_v, p2v_embeddings_w.T))/denom#-np.log(np.exp(p2v_embeddings_v @ p2v_embeddings_w.T).sum(0)[None,:])
+      #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)-np.log(denom_v)).argmax()]
+      #predicted_item = draw[(np.dot(basket_embeds_v, node2v_embedding[draw].T).sum(0)).argmax()]
+      #predicted_item = draw[((np.abs(basket_embeds_v[:,None,:] - node2v_embedding[draw])).sum(-1).sum(0)).argmax()]
+    else:
+      v_w_cross = np.dot(p2v_embeddings_v,p2v_embeddings_w.T) + 3.09
+    clustering = True
+    if clustering:
+      v_w_cross -= v_w_cross.min()
+      ###spectral clustering
+      sc = SpectralClustering(120, 
+                              affinity='precomputed', 
+                              n_init=100, 
+                              assign_labels='discretize'
+                              )
+      sc.fit_predict(v_w_cross)
+      clstr = np.argsort(sc.labels_)
+      
+      ###DBSCAN clustering
+      #v_w_cross = v_w_cross.max() - v_w_cross
+      #sc = DBSCAN(eps=3, 
+      #            min_samples=2, 
+      #            metric='precomputed', 
+      #            )
+      #sc.fit_predict(v_w_cross)
+      #clstr = np.argsort(sc.labels_)
+
+      v_w_cross = v_w_cross[np.ix_(clstr, clstr)]
+    f = plt.figure()
+    plt.imshow(v_w_cross[:250, :250], cmap='gray', interpolation='nearest', aspect='equal')  
+    plt.colorbar()
+    #plt.show()
+    f.savefig("v_w_"+args.method+".pdf", bbox_inches='tight')
+
+    
+  #load training product graph
+  G = nx.readwrite.gpickle.read_gpickle(join_path(data_directory, 'baskets.graph'))
+
+  item2predict, predictions1, predictions2 = [], [], []
   #generate samples
   start = timer()
   with open(join_path(data_directory, args.output + '_test.csv'), 
     'r') as baskets_test_f:
     next(baskets_test_f)
     baskets_test = [list(map(int, x.strip().split(','))) for x in baskets_test_f.readlines() if x.strip()]
-
-  for instance_cnt, basket in enumerate(baskets_test):
+  print('-'*100)
+  print(len(baskets_test))
+  #bakset sizes
+  basket_len = []
+  cnt = 0
+  for instance_cnt, basket in tqdm(enumerate(baskets_test)):
       
       #remove duplicates from the basket if necessary
-      #basket = list(set(basket))
-          
+      basket = list(set(basket))
+      
+      basket_len.append(len(basket))
+
       #remove baskets of small sizes
-      if len(basket) > args.min_basket_len:
+      if len(basket) >= args.min_basket_len:
+          cnt+=1
           #shuffle the basket to predict the first item of it
           random.shuffle(basket)
           #sample a pool of products to predict the removed item from them
@@ -156,43 +300,59 @@ def draw_samples(args, data_directory, output_directory):
           draw = np.random.choice(remaining_items, 
             number_of_items_to_pick, replace=False,
             p = remaining_weights/remaining_weights.sum()).tolist()
-          draw.append(basket[0])
+          draw = [basket[0]] + draw
           #sample from the category of removed item
           #TO DO
           #........................................
 
           #predict the removed item from the sampled pool of products
-          method = 'node2v' #'node2v' or 'p2v' or 'random'
-          if method == 'p2v' or method == 'random':
-            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (p2v_embeddings_v, p2v_embeddings_w))
-          elif method =='node2v':
-            predict = predict_item(args, basket, draw, method, select = 'average', embedding = (p2v_embeddings_v, denom))
+          if args.method == 'p2v' or args.method == 'random':
+            predict = predict_item(args, basket, draw, embedding = (p2v_embeddings_v, p2v_embeddings_w))
+          elif args.method =='node2v':
+            #model = pickle.load(open('out_files/model_p'+str(args.p)+'_q'+str(args.q)+'.pkl', 'rb'))
+            predict = predict_item(args, basket, draw, embedding = (p2v_embeddings_v, p2v_embeddings_w), model=model, G=G)
 
-          #if instance_cnt % 10000 == 0:
-          #  print(instance_cnt) 
-          #  print(timer() - start)
-          #  start = timer()
-
+          predictions1.append(predict[0])
+          predictions2.append(predict[1])
           item2predict.append(basket[0])
-          predictions.append(predict)
           
+          '''
+          if instance_cnt % 10000 == 0:
+            print(instance_cnt) 
+            print(timer() - start)
+            start = timer()
+          '''
+          if instance_cnt == 5000:
+            break
           #save the data
-          #draws.write(','.join(map(str, draw)) + '\n')
-          #baskets2predict.write(','.join(map(str, basket)) + '\n')
+          draws.write(','.join(map(str, draw)) + '\n')
+          baskets2predict.write(','.join(map(str, basket)) + '\n')
+  print(len(item2predict))
+  print('-'*100)
+  
+  ##show the CDF of basket sizes
+  #basket_len = np.array(basket_len)
+  #n_bins = 40
+  #_ = plt.hist(basket_len, n_bins, density=True, histtype='step',
+  #                         cumulative=False, label='Empirical')
+  #plt.show()
 
+  print('preds len', len(predictions1))
   print('random probability', 1.0/(number_of_items_to_pick + 1))
-  prediciton_accuracy = sum(x==y for x, y in zip(item2predict, predictions))/len(predictions)
-  print('prediciton accuracy', prediciton_accuracy)
+  prediciton_accuracy1 = sum(x==y for x, y in zip(item2predict, predictions1))/len(predictions1)
+  print('prediciton1 accuracy', prediciton_accuracy1)
+  prediciton_accuracy2 = sum(x==y for x, y in zip(item2predict, predictions2))/len(predictions2)
+  print('prediciton2 accuracy', prediciton_accuracy2)
   draws.close()
   baskets2predict.close()
 
-  return prediciton_accuracy
+  return prediciton_accuracy2
 
 def data_generator(args):
   
   #directories
   output_directory = 'basket_completion_data'
-  data_directory = 'data'
+  data_directory = 'data_graph'
 
   start = timer()
 
@@ -220,18 +380,28 @@ def basket_completion_accuracy(**kwargs):
                       default = 5)
   parser.add_argument("-p2v-embedding-v", type = str, 
                       help = "path to p2v-v embedding file", 
-                      default = 'data/embeddings_wi.csv')
+                      default = 'embeddings_wi.csv')
   parser.add_argument("-p2v-embedding-w", type = str, 
                       help = "path to p2v-w embedding file", 
-                      default = 'data/embeddings_wo.csv')
+                      default = 'embeddings_wo.csv')
   parser.add_argument("-p2v-v", type = str, 
                       help = "path to p2v v embeddings file", 
-                      default = 'data/wi.npy')
+                      default = 'wi_full.npy')
   parser.add_argument("-p2v-w", type = str, 
                       help = "path to p2v w embeddings file", 
-                      default = 'data/wo.npy')
+                      default = 'wo_full.npy')
+  parser.add_argument("-plot-embedding", type = str, 
+                      help = "flag to plot embedding heatmaps", 
+                      default = 'False')
+  parser.add_argument("-method", type = str, 
+                      help = "basket completion method (random/p2v/node2v) - default p2v", 
+                      default = 'p2v')
+  parser.add_argument("-selection", type = str, 
+                      help = "selection method for basket completion (average/max) - default average", 
+                      default = 'average')
   
 
+  parser.add_argument("-N", type = int, help = "Number of products")
   parser.add_argument("-I", type = int, help = "Number of consumers", 
                       default = 100)
   parser.add_argument("-T", type = int, help = "Number of weeks", 
@@ -273,6 +443,8 @@ def basket_completion_accuracy(**kwargs):
   args_dict = vars(args)
   for k, v in kwargs.items():
     args_dict[k] = v
+  if args.N is None:
+    args_dict['N'] = args.C * args.Jc 
 
   return data_generator(args)
 
