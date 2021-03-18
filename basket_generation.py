@@ -8,6 +8,7 @@ from scipy.stats import weibull_min
 
 np.set_printoptions(precision = 2, suppress = True, linewidth=500)
 
+mult = 1
 #generate inter-category correlation matrix 
 #purchasing categories is selected by MVN(Gamma0, Omega)
 #output is in shape of (I * T * C):
@@ -35,8 +36,8 @@ def omega():
         [0.8, 1]]
   D6 = [[1, 0.8],
         [0.8, 1]]
-  mat = block_diag(D1, D2, D3, D4, D5, D6)
-  return block_diag(mat, mat, mat, mat, mat)
+  mat = (block_diag(D1, D2, D3, D4, D5, D6),) * mult
+  return block_diag(*mat)
 
 
 #generates intra-category correlation matrix
@@ -88,7 +89,7 @@ def sigma_per_cat_vine(args, eta=0):
         omega_c[k,i] = p
         omega_c[i,k] = p
     ##show the distribution of correlations
-    #import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
     #_ = plt.hist(omega_c[np.triu_indices(sz,1)], bins=np.arange(0,1,0.1))  # arguments are passed to np.histogram
     #plt.show()
     tau_I_c = tau * I_c
@@ -133,6 +134,7 @@ def genrate_utility(args):
 #select purchasing categries
 def select_categories(args):
   Omega = omega()
+  args.C = args.C * mult
   z = np.random.multivariate_normal(mean = [args.Gamma0] * args.C, 
                                     cov = Omega, size = (args.I, args.T))
   return z
@@ -220,8 +222,10 @@ def data_generator(args):
 
   #for each costumer
   for i in range(args.I):
-#    baskets_i = []
+    #baskets_i = []
     #for each week
+    if i%1000==0:
+      print('i, ', i)
     for t in range(args.T):
       basket = []
       basket_id += 1
@@ -304,7 +308,7 @@ def data_generator(args):
   p2v_basket_file_validation.close()
 
 
-def main():
+def main(**kwargs):
   parser = argparse.ArgumentParser()
   parser.add_argument("-I", type = int, help = "Number of consumers", 
                       default = 100)
@@ -347,6 +351,11 @@ def main():
                       default = '0.8,0.1,0.1')
   
   args = parser.parse_args()
+
+  args_dict = vars(args)
+  for k, v in kwargs.items():
+    args_dict[k] = v
+
   data_generator(args)
 
 
