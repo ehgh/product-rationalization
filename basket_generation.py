@@ -39,6 +39,29 @@ def omega():
   mat = (block_diag(D1, D2, D3, D4, D5, D6),) * mult
   return block_diag(*mat)
 
+def omega2(): 
+  D1 = [[1, -0.25, -0.25],
+        [-0.25, 1, -0.25],
+        [-0.25, -0.25, 1]] 
+  D2 = [[1, -0.33, -0.28],
+        [-0.33, 1, -0.3],
+        [-0.28, -0.3, 1]]
+  D3 = [[1, -0.32, -0.37],
+        [-0.32, 1, -0.35],
+        [-0.37, -0.35, 1]]
+  D4 = [[1, 0.17, 0.39],
+        [0.17, 1, 0.36],
+        [0.39, 0.36, 1]]
+  D5 = [[1, 0.17, 0.39],
+        [0.17, 1, 0.36],
+        [0.39, 0.36, 1]]
+  D6 = [[1, -0.32, -0.37],
+        [-0.32, 1, -0.35],
+        [-0.37, -0.35, 1]]
+  D7 = [[1, 0.8],
+        [0.8, 1]]
+  mat = (block_diag(D1, D2, D3, D4, D5, D6, D7),) * mult
+  return block_diag(*mat)
 
 #generates intra-category correlation matrix
 #Sigma_c = (tau * I_c) * omega_c * (tau * I_c)
@@ -133,7 +156,7 @@ def genrate_utility(args):
 
 #select purchasing categries
 def select_categories(args):
-  Omega = omega()
+  Omega = omega2()
   args.C = args.C * mult
   z = np.random.multivariate_normal(mean = [args.Gamma0] * args.C, 
                                     cov = Omega, size = (args.I, args.T))

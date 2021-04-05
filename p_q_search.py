@@ -1,5 +1,6 @@
 import basket_completion as bc
 import basket_generation as bg
+import basket_reconstruction as br
 import sys
 import itertools
 import numpy as np
@@ -27,12 +28,12 @@ np.set_printoptions(precision = 4,
                     edgeitems=8
                     )
 
-selection = 'top_2'  #average / max / top_2
-method='p2v' #'node2v' / 'p2v' / 'random' 
+selection = 'average'  #average / max / top_2
+method='node2v' #'node2v' / 'p2v' / 'random' 
 dimensions = 128
 generate_baskets = False
 build_graph = generate_baskets or False
-overwrite_embedding = True
+overwrite_embedding = False
 parallel = True
 filename = 'out_files/embedding_%s_%s_p%s_q%s_minlen%s.npy' % ('%s', method, '%d', '%g', '%d')
 
@@ -48,12 +49,12 @@ def embed_and_basket_completion(p, q, n):
 
     if generate_baskets:
       N = 20*15
-    N = 300#1929
+    N = 300#1929 / 300
     min_basket_len = n
     #sim_v2 1500
     #sim 300
 
-    if build_graph:
+    if build_graph and method == 'node2v':
       embedding = n2v.main(input='data_graph/baskets_train.csv',
                           input_format= 'basketlist',
                           dimensions=3,
@@ -69,7 +70,7 @@ def embed_and_basket_completion(p, q, n):
                           q=q,
                           N=N,
                           min_basket_len=min_basket_len,
-                          num_basket=10000)
+                          num_basket=100000)
     if method == 'node2v':
       if not overwrite_embedding:
         embedding = np.load(filename%('v', p, q, n))
@@ -80,9 +81,9 @@ def embed_and_basket_completion(p, q, n):
                             walk_length=50,
                             output='../node2vec_embeddings_modified/emb/baskets_train.emd',
                             overwrite=True,
-                            overwrite_walks=False,
-                            overwrite_transitions=False,
-                            num_walks=1000,
+                            overwrite_walks=True,
+                            overwrite_transitions=True,
+                            num_walks=100,
                             window_size=n,
                             iter=5,
                             p=p, 
@@ -111,7 +112,10 @@ def embed_and_basket_completion(p, q, n):
     ###for random
     else:
       embedding = np.array([]), np.array([])
-    acc = bc.basket_completion_accuracy(embedding=embedding, 
+    #basket completion
+    '''
+    acc = bc.basket_completion_accuracy(embedding=embedding,
+                                        evaluation_file='train', 
                                         plot_embedding=False,
                                         clustering=False,
                                         n_clusters=20,
@@ -120,7 +124,23 @@ def embed_and_basket_completion(p, q, n):
                                         N=N,
                                         selection=selection,
                                         method=method, 
-                                        n_sample=15,
+                                        n_sample=300-min_basket_len,
+                                        bootstrap=10,
+                                        min_basket_len=min_basket_len)
+    '''
+    #basket reconstruction
+    acc = br.basket_completion_accuracy(input='data_graph/baskets.graph',
+                                        embedding=embedding,
+                                        evaluation_file='test', 
+                                        plot_embedding=False,
+                                        clustering=False,
+                                        n_clusters=20,
+                                        p=p, 
+                                        q=q,
+                                        N=N,
+                                        selection=selection,
+                                        method=method, 
+                                        n_sample=300-min_basket_len,
                                         bootstrap=10,
                                         min_basket_len=min_basket_len)
     return acc
@@ -154,8 +174,8 @@ def main():
   q_range = [0.5]
   q_range = [0.2, 0.5, 1 ,1.2, 1.4, 1.6, 1.8, 2, 4]
   n_range = [2,3,4,5,6,7]
-  q_range = [1, 2]
-  n_range = [4,5,6]
+  q_range = [1,2]
+  n_range = np.arange(2,8)
   p_q = list(itertools.product(p_range, q_range, n_range))
   print(p_q)
   acc_l = []

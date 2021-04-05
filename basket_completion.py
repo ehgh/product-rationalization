@@ -235,8 +235,6 @@ def draw_samples(args, data_directory, output_directory):
   draws = open(join_path(output_directory, args.output + '_draws.csv'), 'a')
   baskets2predict = open(join_path(output_directory, args.output + '_baskets2predict.csv'), 'a')
 
-  number_of_items_to_pick = args.n_sample
-
   #calculate product penetration weights for sampling purposes
   product_penetration_weights_probs = product_penetration_calculator(args, 
                                       data_directory)
@@ -318,7 +316,7 @@ def draw_samples(args, data_directory, output_directory):
 
   #generate samples
   start = timer()
-  with open(join_path(data_directory, args.output + '_test.csv'), 
+  with open(join_path(data_directory, args.output + '_' + args.evaluation_file + '.csv'), 
     'r') as baskets_test_f:
     next(baskets_test_f)
     baskets_test_data = [list(map(int, x.strip().split(','))) for x in baskets_test_f.readlines() if x.strip()]
@@ -352,6 +350,7 @@ def draw_samples(args, data_directory, output_directory):
             #sample from all products minus the ones already in the basket
             remaining_items = np.setdiff1d(all_items, basket, assume_unique=True)
             remaining_weights = product_penetration_weights_probs[remaining_items]
+            number_of_items_to_pick = min(args.n_sample, np.count_nonzero(remaining_weights))
             draw = np.random.choice(remaining_items, 
               number_of_items_to_pick, replace=False,
               p = remaining_weights/remaining_weights.sum()).tolist()
@@ -361,11 +360,7 @@ def draw_samples(args, data_directory, output_directory):
             #........................................
 
             #predict the removed item from the sampled pool of products
-            if args.method == 'p2v' or args.method == 'random':
-              predict = predict_item(args, basket, draw, embedding = (p2v_embeddings_v, p2v_embeddings_w))
-            elif args.method =='node2v':
-              #model = pickle.load(open('out_files/model_p'+str(args.p)+'_q'+str(args.q)+'.pkl', 'rb'))
-              predict = predict_item(args, basket, draw, embedding = (p2v_embeddings_v, p2v_embeddings_w), model=model)#, G=G)
+            predict = predict_item(args, basket, draw, embedding = (p2v_embeddings_v, p2v_embeddings_w), model=model)#, G=G)
 
             predictions1.append(predict[0])
             predictions2.append(predict[1])
@@ -402,7 +397,7 @@ def draw_samples(args, data_directory, output_directory):
 
   print('number of baskets in test set with basket size {}: {}/{}'.format(args.min_basket_len, cnt, len(baskets_test_data)))
 
-  print('random probability', 1.0/(number_of_items_to_pick + 1))
+  print('random probability', 1.0/(args.n_sample + 1))
   prediciton_accuracy = np.array(prediciton_accuracy)
   accuracy = np.array([prediciton_accuracy.mean()])
   accuracy = np.append(accuracy, np.percentile(prediciton_accuracy, [5, 50, 95]))
